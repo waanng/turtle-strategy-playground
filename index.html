@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐢 海龟法则 · 交互式回测</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0d1117; --card:#161b22; --elevated:#21262d; --border:#30363d;
+  --text:#e6edf3; --text2:#8b949e; --red:#ef4444; --green:#22c55e;
+  --blue:#58a6ff; --gold:#d2991d; --purple:#a371f7;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.5;min-height:100vh}
+a{color:var(--blue);text-decoration:none}
+.container{max-width:1400px;margin:0 auto;padding:0 16px}
+
+/* Layout */
+.app{display:flex;min-height:100vh}
+.sidebar{width:300px;min-width:300px;background:var(--card);border-right:1px solid var(--border);padding:16px;overflow-y:auto;position:sticky;top:0;height:100vh}
+.main{flex:1;padding:20px 24px;overflow-y:auto}
+
+/* Header */
+.header{padding:12px 0;border-bottom:1px solid var(--border);margin-bottom:20px}
+.header h1{font-size:20px;display:flex;align-items:center;gap:8px}
+.header .badge{font-size:11px;background:var(--elevated);padding:3px 8px;border-radius:10px;color:var(--text2)}
+
+/* Panel sections */
+.panel-section{margin-bottom:18px}
+.panel-label{font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:6px;letter-spacing:.5px}
+select,input[type=number],input[type=date]{width:100%;background:var(--elevated);color:var(--text);border:1px solid var(--border);padding:8px 10px;border-radius:6px;font-size:13px}
+input[type=range]{width:100%;accent-color:var(--blue);margin:6px 0}
+.range-row{display:flex;align-items:center;gap:8px}
+.range-val{min-width:36px;text-align:right;font-size:13px;color:var(--text2);font-weight:600}
+.presets{display:flex;gap:6px;flex-wrap:wrap}
+.presets button{flex:1;background:var(--elevated);color:var(--text2);border:1px solid var(--border);padding:6px 4px;border-radius:6px;font-size:11px;cursor:pointer;min-width:60px}
+.presets button:hover{border-color:var(--blue);color:var(--text)}
+.presets button.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn{width:100%;background:var(--blue);color:#fff;border:none;padding:10px;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;margin-top:8px}
+.btn:hover{opacity:.9}
+.btn-reset{background:var(--elevated);color:var(--text2);margin-top:4px}
+
+/* Metric cards */
+.metrics-cards{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px}
+.m-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.m-card .m-label{font-size:10px;color:var(--text2);text-transform:uppercase;margin-bottom:4px}
+.m-card .m-value{font-size:20px;font-weight:700}
+.m-card .m-sub{font-size:11px;color:var(--text2);margin-top:2px}
+.up{color:var(--red)}.down{color:var(--green)}
+
+/* Chart panels */
+.chart-section{margin-bottom:20px}
+.chart-section h3{font-size:15px;margin-bottom:10px;color:var(--text2)}
+.chart-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}
+.chart-wrap{position:relative;height:340px}
+.chart-wrap-small{position:relative;height:200px}
+
+/* Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card);border:1px solid var(--border);border-radius:8px}
+th,td{padding:8px 10px;text-align:left;white-space:nowrap}
+th{background:var(--elevated);color:var(--text2);font-weight:600;font-size:11px;text-transform:uppercase;cursor:pointer;user-select:none}
+td{border-top:1px solid var(--border)}
+tr:hover td{background:rgba(88,166,255,.05)}
+.sort-asc::after{content:' ↑'}.sort-desc::after{content:' ↓'}
+
+/* Loading */
+.loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--text2);gap:8px}
+.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-sm{font-size:11px;color:var(--text2);margin:8px 0}
+
+/* Responsive */
+@media(max-width:900px){
+  .app{flex-direction:column}
+  .sidebar{width:100%;min-width:0;height:auto;position:static;border-right:none;border-bottom:1px solid var(--border)}
+  .metrics-cards{grid-template-columns:repeat(3,1fr)}
+  .main{padding:14px}
+}
+@media(max-width:500px){
+  .metrics-cards{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- Sidebar Controls -->
+<aside class="sidebar" id="sidebar">
+<div class="header"><h1>🐢 海龟法则<span class="badge">Playground</span></h1></div>
+
+<div class="panel-section">
+  <div class="panel-label">📌 标的</div>
+  <select id="stock-selector"></select>
+</div>
+
+<div class="panel-section">
+  <div class="panel-label">📅 时段</div>
+  <div class="presets" id="period-presets">
+    <button data-years="3" class="active">3年</button>
+    <button data-years="1">1年</button>
+    <button data-months="6">6月</button>
+    <button data-months="3">3月</button>
+  </div>
+</div>
+
+<div class="panel-section">
+  <div class="panel-label">⚙ 策略参数</div>
+  <div class="presets" id="param-presets">
+    <button data-preset="classic" class="active">🐢经典</button>
+    <button data-preset="fast">🐇短线</button>
+    <button data-preset="slow">🐘长线</button>
+  </div>
+</div>
+
+<div class="panel-section"><div class="panel-label">入场通道周期 (N)</div>
+  <div class="range-row"><input type="range" id="entry-period" min="5" max="120" value="20" step="1"><span class="range-val" id="entry-period-val">20</span></div>
+</div>
+<div class="panel-section"><div class="panel-label">退出通道周期 (M)</div>
+  <div class="range-row"><input type="range" id="exit-period" min="3" max="60" value="10" step="1"><span class="range-val" id="exit-period-val">10</span></div>
+</div>
+<div class="panel-section"><div class="panel-label">ATR 周期</div>
+  <div class="range-row"><input type="range" id="atr-period" min="5" max="60" value="20" step="1"><span class="range-val" id="atr-period-val">20</span></div>
+</div>
+<div class="panel-section"><div class="panel-label">加仓步长 (×ATR)</div>
+  <div class="range-row"><input type="range" id="add-step" min="0.1" max="2" value="0.5" step="0.1"><span class="range-val" id="add-step-val">0.5</span></div>
+</div>
+<div class="panel-section"><div class="panel-label">最大单位数</div>
+  <div class="presets" id="max-units-group">
+    <button data-value="1">1</button><button data-value="2">2</button><button data-value="3">3</button><button data-value="4" class="active">4</button>
+    <button data-value="5">5</button><button data-value="6">6</button><button data-value="7">7</button><button data-value="8">8</button>
+  </div>
+</div>
+<div class="panel-section"><div class="panel-label">止损倍数 (×ATR)</div>
+  <div class="range-row"><input type="range" id="stop-multiple" min="0.5" max="5" value="2" step="0.1"><span class="range-val" id="stop-multiple-val">2.0</span></div>
+</div>
+<div class="panel-section"><div class="panel-label">风险预算 (%)</div>
+  <div class="range-row"><input type="range" id="risk-fraction" min="0.1" max="5" value="1" step="0.1"><span class="range-val" id="risk-fraction-val">1.0</span></div>
+</div>
+<div class="panel-section"><div class="panel-label">初始资金</div>
+  <select id="initial-capital">
+    <option value="50000">5万</option><option value="100000" selected>10万</option>
+    <option value="200000">20万</option><option value="500000">50万</option><option value="1000000">100万</option>
+  </select>
+</div>
+
+<button class="btn" id="btn-run">▶ 运行回测</button>
+<button class="btn btn-reset" id="btn-reset">↺ 重置默认参数</button>
+<div id="run-status" class="loading-sm" style="text-align:center"></div>
+</aside>
+
+<!-- Main Content -->
+<main class="main">
+
+<!-- Metric Cards -->
+<div id="metrics-container">
+  <div class="loading"><div class="spinner"></div> 计算中...</div>
+</div>
+
+<!-- Equity Chart -->
+<div class="chart-section">
+  <h3>📈 净值曲线</h3>
+  <div class="chart-panel"><div class="chart-wrap"><canvas id="equity-plot"></canvas></div></div>
+</div>
+
+<!-- Signal Chart -->
+<div class="chart-section">
+  <h3>🔍 交易信号 (唐奇安通道 + 买卖点)</h3>
+  <div class="chart-panel">
+    <div class="chart-wrap" style="height:360px"><canvas id="signal-plot"></canvas></div>
+    <div class="chart-wrap-small" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px"><canvas id="atr-plot"></canvas></div>
+  </div>
+</div>
+
+<!-- Trades Table -->
+<div class="chart-section">
+  <h3>📋 交易明细</h3>
+  <div class="table-wrap"><table id="trades-table"><thead><tr>
+    <th data-sort="entryDate">入场日期</th><th data-sort="exitDate">出场日期</th>
+    <th data-sort="entryPrice">入场价</th><th data-sort="exitPrice">出场价</th>
+    <th data-sort="shares">股数</th><th data-sort="returnPct">收益率</th>
+    <th data-sort="holdingDays">持仓天</th><th>触发</th>
+  </tr></thead><tbody id="trades-body"></tbody></table></div>
+</div>
+
+<div style="text-align:center;color:var(--text2);font-size:12px;padding:20px">
+  🐢 海龟法则交互式回测 · 数据每日 Actions 更新 · <a href="https://waanng.github.io/turtle-strategy-dashboard/" target="_blank">📊 每日看板</a>
+</div>
+</main>
+</div>
+
+<script src="js/turtle_engine.js"></script>
+<script>
+// ============================================================
+// Playground Logic
+// ============================================================
+const TE = TurtleEngine;
+const DATA_BASE = 'data/';
+
+const STOCKS = [
+  { code:'688981.SH', name:'中芯国际A', market:'A股' },
+  { code:'002594.SZ', name:'比亚迪A', market:'A股' },
+  { code:'600900.SH', name:'长江电力A', market:'A股' },
+  { code:'0981.HK', name:'中芯国际HK', market:'港股' },
+  { code:'1211.HK', name:'比亚迪HK', market:'港股' },
+];
+
+const PRESETS = {
+  classic: { entry_period:20, exit_period:10, atr_period:20, add_unit_step:0.5, max_units:4, stop_multiple:2.0, risk_fraction:1.0 },
+  fast:    { entry_period:10, exit_period:5,  atr_period:10, add_unit_step:0.3, max_units:3, stop_multiple:1.5, risk_fraction:1.5 },
+  slow:    { entry_period:60, exit_period:20, atr_period:30, add_unit_step:1.0, max_units:2, stop_multiple:3.0, risk_fraction:0.5 },
+};
+
+let state = {
+  rawData: {}, results: null, equityChart: null, signalChart: null, atrChart: null,
+  sortKey: null, sortAsc: false, backtestTimer: null,
+};
+
+// ── Utils ──
+function fmtPct(v) { return v == null ? 'N/A' : (v*100).toFixed(2)+'%'; }
+function upDown(v) { return v >= 0 ? 'up' : 'down'; }
+
+async function loadRaw(tsCode) {
+  if (state.rawData[tsCode]) return state.rawData[tsCode];
+  const res = await fetch(DATA_BASE + 'raw_' + tsCode + '.json');
+  const json = await res.json();
+  state.rawData[tsCode] = json.data;
+  return json.data;
+}
+
+function getParams() {
+  return {
+    entry_period: +document.getElementById('entry-period').value,
+    exit_period: +document.getElementById('exit-period').value,
+    atr_period: +document.getElementById('atr-period').value,
+    add_unit_step: +document.getElementById('add-step').value,
+    max_units: +document.getElementById('max-units-group').querySelector('.active').dataset.value,
+    stop_multiple: +document.getElementById('stop-multiple').value,
+    risk_fraction: +document.getElementById('risk-fraction').value / 100,
+    initial_capital: +document.getElementById('initial-capital').value,
+    commission_rate: 0.0003, slippage: 0.0001,
+    ts_code: document.getElementById('stock-selector').value,
+  };
+}
+
+function getDataRange(fullData) {
+  const period = document.getElementById('period-presets').querySelector('.active');
+  const now = new Date(fullData[fullData.length-1].date);
+  let cutoff;
+  if (period.dataset.years) {
+    cutoff = new Date(now); cutoff.setFullYear(cutoff.getFullYear() - +period.dataset.years);
+  } else if (period.dataset.months) {
+    cutoff = new Date(now); cutoff.setMonth(cutoff.getMonth() - +period.dataset.months);
+  } else { cutoff = new Date(0); }
+  return fullData.filter(d => new Date(d.date) >= cutoff);
+}
+
+// ── Run Backtest ──
+async function runBacktest() {
+  const tsCode = document.getElementById('stock-selector').value;
+  const fullData = await loadRaw(tsCode);
+  const params = getParams();
+  const data = getDataRange(fullData);
+  params.ts_code = tsCode;
+
+  document.getElementById('run-status').innerHTML = '<div class="spinner" style="margin:auto"></div>';
+  const t0 = performance.now();
+
+  const result = TE.runBacktest(data, params);
+  const metrics = TE.computeMetrics(result.equityRecords, result.tradeRecords, params.initial_capital);
+  const detail = TE.exportDetailData(data, params, Math.min(150, data.length));
+
+  const elapsed = (performance.now() - t0).toFixed(0);
+  document.getElementById('run-status').textContent = `✓ 完成 (${elapsed}ms) · ${data.length} 行 · ${result.tradeRecords.length} 笔交易`;
+  state.results = { result, metrics, detail, params, data };
+
+  renderMetrics(metrics);
+  renderEquityChart(result.equityRecords, params, metrics);
+  renderSignalChart(detail);
+  renderATRChart(detail);
+  renderTrades(result.tradeRecords);
+}
+
+function triggerBacktest() {
+  clearTimeout(state.backtestTimer);
+  state.backtestTimer = setTimeout(runBacktest, 500);
+}
+
+// ── Metrics Cards ──
+function renderMetrics(m) {
+  const cards = [
+    ['年化收益', fmtPct(m.annualizedReturn), upDown(m.annualizedReturn)],
+    ['夏普比率', (m.sharpeRatio||0).toFixed(2), ''],
+    ['最大回撤', fmtPct(m.maxDrawdown), 'down'],
+    ['胜率', fmtPct(m.winRate), ''],
+    ['交易笔数', (m.totalTrades||0)+' 笔', ''],
+    ['止损次数', (m.stopLossCount||0)+' 次', ''],
+  ];
+  document.getElementById('metrics-container').innerHTML = `<div class="metrics-cards">${
+    cards.map(([l,v,c]) => `<div class="m-card"><div class="m-label">${l}</div><div class="m-value ${c}">${v}</div></div>`).join('')
+  }</div>`;
+}
+
+// ── Equity Chart ──
+function renderEquityChart(equity, params, metrics) {
+  if (state.equityChart) state.equityChart.destroy();
+  const labels = equity.map(e => e.date.slice(5));
+  const strategyEq = equity.map(e => e.totalEquity);
+  const firstClose = equity[0]?.close || 1;
+  const benchEq = equity.map(e => params.initial_capital * (1 + (e.close - firstClose) / firstClose));
+  const avgPct = metrics.avgPositionPct || 0.05;
+  const equalPosEq = equity.map(e => params.initial_capital * (1 - avgPct) + params.initial_capital * avgPct * (e.close / firstClose));
+
+  const ctx = document.getElementById('equity-plot').getContext('2d');
+  state.equityChart = new Chart(ctx, {
+    type:'line', data:{ labels, datasets:[
+      { label:'策略净值', data:strategyEq, borderColor:'#ef4444', borderWidth:2, pointRadius:0 },
+      { label:'满仓买入持有', data:benchEq, borderColor:'#8b949e', borderWidth:.8, borderDash:[3,5], pointRadius:0 },
+      { label:'等仓位买入持有', data:equalPosEq, borderColor:'#58a6ff', borderWidth:1.2, borderDash:[8,3], pointRadius:0 },
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#8b949e',usePointStyle:true,padding:16,font:{size:11}}}},
+      scales:{
+        x:{ticks:{color:'#8b949e',maxTicksLimit:10},grid:{color:'rgba(48,54,61,.3)'}},
+        y:{ticks:{color:'#8b949e',callback:v=>'¥'+(v/10000).toFixed(1)+'万'},grid:{color:'rgba(48,54,61,.3)'}},
+      }
+    }
+  });
+}
+
+// ── Signal Chart ──
+function renderSignalChart(detail) {
+  if (state.signalChart) state.signalChart.destroy();
+  const labels = detail.labels.map(d => d.slice(5));
+  const toScatter = pts => pts.map(p => ({x: p.date.slice(5), y: p.price}));
+
+  const ctx = document.getElementById('signal-plot').getContext('2d');
+  state.signalChart = new Chart(ctx, {
+    type:'line', data:{ labels, datasets:[
+      { label:'收盘价', data:detail.close, borderColor:'#e6edf3', borderWidth:1.5, pointRadius:0 },
+      { label:'入场上轨(20)', data:detail.entryUpper, borderColor:'rgba(239,68,68,.5)', borderWidth:1, borderDash:[6,3], pointRadius:0 },
+      { label:'入场下轨(20)', data:detail.entryLower, borderColor:'rgba(34,197,94,.5)', borderWidth:1, borderDash:[6,3], pointRadius:0 },
+      { label:'退出下轨(10)', data:detail.exitLower, borderColor:'rgba(34,197,94,.25)', borderWidth:.8, borderDash:[2,4], pointRadius:0 },
+      { label:'▲入场', type:'scatter', data:toScatter(detail.entryPoints), backgroundColor:'#ef4444', pointRadius:7, pointStyle:'triangle' },
+      { label:'▼退出', type:'scatter', data:toScatter(detail.exitPoints), backgroundColor:'#22c55e', pointRadius:7, pointStyle:'triangle', rotation:180 },
+      ...(detail.addPoints.length>0 ? [{ label:'◆加仓', type:'scatter', data:toScatter(detail.addPoints), backgroundColor:'#d2991d', pointRadius:7, pointStyle:'diamond' }] : []),
+      ...(detail.stopPoints.length>0 ? [{ label:'✕止损', type:'scatter', data:toScatter(detail.stopPoints), backgroundColor:'transparent', borderColor:'#a371f7', borderWidth:3, pointRadius:7, pointStyle:'cross' }] : []),
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'top',labels:{color:'#8b949e',usePointStyle:true,padding:10,font:{size:10},boxWidth:14}}},
+      scales:{
+        x:{ticks:{color:'#8b949e',maxTicksLimit:10},grid:{color:'rgba(48,54,61,.3)'}},
+        y:{ticks:{color:'#8b949e',callback:v=>'¥'+v.toFixed(1)},grid:{color:'rgba(48,54,61,.3)'}},
+      }
+    }
+  });
+}
+
+function renderATRChart(detail) {
+  if (state.atrChart) state.atrChart.destroy();
+  const ctx = document.getElementById('atr-plot').getContext('2d');
+  state.atrChart = new Chart(ctx, {
+    type:'line', data:{ labels:detail.labels.map(d=>d.slice(5)), datasets:[
+      { label:'ATR', data:detail.atr, borderColor:'#d2991d', borderWidth:1.5, pointRadius:0, fill:false },
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#8b949e',font:{size:10},padding:6}}},
+      scales:{
+        x:{ticks:{color:'#8b949e',maxTicksLimit:8},grid:{color:'rgba(48,54,61,.3)'}},
+        y:{ticks:{color:'#8b949e'},grid:{color:'rgba(48,54,61,.3)'},title:{display:true,text:'ATR',color:'#8b949e'}},
+      }
+    }
+  });
+}
+
+// ── Trades Table ──
+function renderTrades(trades) {
+  const tbody = document.getElementById('trades-body');
+  if (!trades.length) { tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px">无交易记录</td></tr>'; return; }
+  const sorted = [...trades];
+  if (state.sortKey) {
+    sorted.sort((a,b) => {
+      let va=a[state.sortKey], vb=b[state.sortKey];
+      if (typeof va==='string') va=va.localeCompare(vb); else va-=vb;
+      return state.sortAsc ? va : -va;
+    });
+  }
+  tbody.innerHTML = sorted.map(t => `<tr>
+    <td>${(t.entryDate||'').slice(0,10)}</td><td>${(t.exitDate||'').slice(0,10)}</td>
+    <td>¥${t.entryPrice?.toFixed(2)}</td><td>¥${t.exitPrice?.toFixed(2)}</td>
+    <td>${t.shares}</td><td class="${upDown(t.returnPct)}">${fmtPct(t.returnPct)}</td>
+    <td>${t.holdingDays||0}</td><td>${t.stopLossTriggered?'<span style="color:var(--purple)">止损</span>':'退出信号'}</td>
+  </tr>`).join('');
+}
+
+// ── Init ──
+function populateStockSelector() {
+  const sel = document.getElementById('stock-selector');
+  sel.innerHTML = STOCKS.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('');
+  sel.onchange = triggerBacktest;
+}
+
+function setupControls() {
+  // Sliders
+  ['entry-period','exit-period','atr-period','add-step','stop-multiple','risk-fraction'].forEach(id => {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id+'-val');
+    el.oninput = () => { valEl.textContent = el.value; triggerBacktest(); };
+  });
+
+  // Period presets
+  document.querySelectorAll('#period-presets button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#period-presets button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    triggerBacktest();
+  });
+
+  // Param presets
+  document.querySelectorAll('#param-presets button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#param-presets button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const p = PRESETS[b.dataset.preset];
+    document.getElementById('entry-period').value = p.entry_period; document.getElementById('entry-period-val').textContent = p.entry_period;
+    document.getElementById('exit-period').value = p.exit_period; document.getElementById('exit-period-val').textContent = p.exit_period;
+    document.getElementById('atr-period').value = p.atr_period; document.getElementById('atr-period-val').textContent = p.atr_period;
+    document.getElementById('add-step').value = p.add_unit_step; document.getElementById('add-step-val').textContent = p.add_unit_step;
+    document.getElementById('stop-multiple').value = p.stop_multiple; document.getElementById('stop-multiple-val').textContent = p.stop_multiple;
+    document.getElementById('risk-fraction').value = p.risk_fraction; document.getElementById('risk-fraction-val').textContent = p.risk_fraction;
+    document.querySelectorAll('#max-units-group button').forEach(b2 => b2.classList.toggle('active', +b2.dataset.value === p.max_units));
+    triggerBacktest();
+  });
+
+  // Max units buttons
+  document.querySelectorAll('#max-units-group button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#max-units-group button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    triggerBacktest();
+  });
+
+  // Initial capital
+  document.getElementById('initial-capital').onchange = triggerBacktest;
+
+  // Run / Reset buttons
+  document.getElementById('btn-run').onclick = runBacktest;
+  document.getElementById('btn-reset').onclick = () => {
+    document.querySelector('#param-presets [data-preset="classic"]').click();
+    document.querySelectorAll('#period-presets button')[0].click();
+  };
+
+  // Table sorting
+  document.querySelectorAll('#trades-table th[data-sort]').forEach(th => {
+    th.onclick = () => {
+      const key = th.dataset.sort;
+      if (state.sortKey === key) state.sortAsc = !state.sortAsc;
+      else { state.sortKey = key; state.sortAsc = false; }
+      document.querySelectorAll('#trades-table th').forEach(x => x.className = '');
+      th.classList.add(state.sortAsc ? 'sort-asc' : 'sort-desc');
+      if (state.results) renderTrades(state.results.result.tradeRecords);
+    };
+  });
+}
+
+async function init() {
+  populateStockSelector();
+  setupControls();
+  await runBacktest();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
